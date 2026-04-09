@@ -191,52 +191,21 @@ static bool project(float alt, float az, float heading, int cx, int cy, int radi
                     int *sx, int *sy) {
   if(alt < -5) return false;  // Below horizon
 
-  float fov = s_zoom_fov[s_zoom];
+  float fov = s_zoom_fov[s_zoom];  // 90, 45, or 22.5
 
-  // Angular distance from the center of view (heading direction at altitude ~45°)
-  // For zoomed view: center on the direction we're facing at ~45° altitude
-  float center_alt = (s_zoom == 0) ? 90.0f : 45.0f;  // Full sky: zenith center, zoom: mid-sky
+  // Same projection for all zoom levels — just scale differently
+  // r = angular distance from zenith, mapped to screen
+  float r = (90.0f - alt) / fov * radius;
 
-  // Distance from center of projection
-  float dalt = center_alt - alt;
-  float daz = az - heading;
-  // Normalize daz to -180..180
-  while(daz > 180) daz -= 360;
-  while(daz < -180) daz += 360;
+  // Rotate so facing direction is at top
+  float theta = az - heading + 180.0f;
 
-  // Simple angular distance for zoom clipping
-  if(s_zoom > 0) {
-    float ang_dist = dalt*dalt + daz*daz*pcos(alt)*pcos(alt);
-    if(ang_dist > fov*fov*1.5f) return false;  // Outside FOV
-  }
+  *sx = cx + (int)(r * psin(theta));
+  *sy = cy - (int)(r * pcos(theta));
 
-  float r;
-  if(s_zoom == 0) {
-    // Full sky: zenith at center, horizon at edge
-    r = (90.0f - alt) / 90.0f * radius;
-  } else {
-    // Zoomed: map FOV to full radius
-    r = dalt / fov * radius;
-  }
-
-  float theta = daz + 180.0f;
-  if(s_zoom == 0) theta = az - heading + 180.0f;
-
-  float px_x, px_y;
-  if(s_zoom == 0) {
-    px_x = r * psin(theta);
-    px_y = -r * pcos(theta);
-  } else {
-    // Zoomed: daz maps to horizontal, dalt maps to vertical
-    px_x = daz / fov * radius;
-    px_y = dalt / fov * radius;
-  }
-
-  *sx = cx + (int)px_x;
-  *sy = cy + (int)px_y;
-
-  // Clip to screen bounds
-  if(*sx < 0 || *sx >= cx*2 || *sy < 0 || *sy >= cy*2) return false;
+  // Clip to screen
+  int margin = 10;
+  if(*sx < -margin || *sx >= cx*2+margin || *sy < -margin || *sy >= cy*2+margin) return false;
   return true;
 }
 
