@@ -11,8 +11,12 @@
     "sdkVersion": "3",
     "enableMultiJS": false,
     "targetPlatforms": ["gabbro"],
-    "capabilities": ["compass"],
-    "messageKeys": {},
+    "capabilities": ["compass", "location"],
+    "messageKeys": {
+      "LAT": 0,
+      "LON": 1
+    },
+    "enableMultiJS": true,
     "watchapp": {
       "watchface": false
     },

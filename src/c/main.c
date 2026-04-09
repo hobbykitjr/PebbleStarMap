@@ -120,6 +120,7 @@ static Layer *s_canvas;
 static float s_heading = 0;        // Compass heading in degrees
 static bool s_compass_ok = false;
 static float s_lat = 40.5;         // Observer latitude (PA area default)
+static float s_lon = -76.0;       // Observer longitude
 static bool s_show_names = true;   // Show star names
 static int s_zoom = 0;            // 0=full sky, 1=2x, 2=4x
 static const float s_zoom_fov[] = {90.0f, 45.0f, 22.5f};  // Degrees from center to edge
@@ -134,10 +135,12 @@ static float local_sidereal_time(float lon_deg) {
   struct tm *lt = localtime(&now);
   if(!lt) return 0;
 
-  // Approximate UTC by assuming EST (-5) — good enough for star positions
+  // Estimate UTC offset from longitude (rough: 1 hour per 15°)
+  int utc_off = -(int)(lon_deg / 15.0f);
   int y=lt->tm_year+1900, m=lt->tm_mon+1, d=lt->tm_mday;
-  int h=lt->tm_hour+5, mn=lt->tm_min, s=lt->tm_sec;  // +5 for EST→UTC
-  if(h>=24) { h-=24; d++; }
+  int h=lt->tm_hour+utc_off, mn=lt->tm_min, s=lt->tm_sec;
+  while(h>=24) { h-=24; d++; }
+  while(h<0) { h+=24; d--; }
   float ut = h + mn/60.0f + s/3600.0f;
 
   // Days since J2000.0
@@ -258,8 +261,8 @@ static void canvas_proc(Layer *l, GContext *ctx) {
   #endif
   graphics_draw_circle(ctx, GPoint(cx, cy), radius);
 
-  // Compute sidereal time (assume longitude ~ -76° for PA)
-  float lst = local_sidereal_time(-76.0f);
+  // Compute sidereal time using observer longitude
+  float lst = local_sidereal_time(s_lon);
 
   // Pre-compute star screen positions
   int star_x[NUM_STARS], star_y[NUM_STARS];
@@ -421,6 +424,18 @@ static void click_config(void *ctx) {
 }
 
 // ============================================================================
+// APPMESSAGE (receive location from phone)
+// ============================================================================
+static void inbox_cb(DictionaryIterator *it, void *c) {
+  Tuple *t;
+  t = dict_find(it, MESSAGE_KEY_LAT);
+  if(t) s_lat = (float)t->value->int32 / 100.0f;
+  t = dict_find(it, MESSAGE_KEY_LON);
+  if(t) s_lon = (float)t->value->int32 / 100.0f;
+  if(s_canvas) layer_mark_dirty(s_canvas);
+}
+
+// ============================================================================
 // TICK (for star movement)
 // ============================================================================
 static void tick_cb(struct tm *t, TimeUnits u) {
@@ -459,6 +474,8 @@ static void init(void) {
   s_win = window_create();
   window_set_background_color(s_win, GColorBlack);
   window_set_window_handlers(s_win, (WindowHandlers){.load=win_load, .unload=win_unload});
+  app_message_register_inbox_received(inbox_cb);
+  app_message_open(64, 64);
   window_stack_push(s_win, true);
 }
 
