@@ -125,6 +125,9 @@ static bool s_show_names = true;   // Show star names
 static int s_zoom = 0;            // 0=full sky, 1=2x, 2=4x
 static const float s_zoom_fov[] = {90.0f, 45.0f, 22.5f};
 static bool s_night_mode = false; // Red-only colors for dark adaptation
+static float s_iss_alt = -90;    // ISS altitude (negative = below horizon)
+static float s_iss_az = 0;       // ISS azimuth
+static bool s_iss_vis = false;   // ISS above horizon
 
 // Night mode color helpers
 static GColor nm_star_bright(void) {
@@ -318,6 +321,32 @@ static void canvas_proc(Layer *l, GContext *ctx) {
     }
   }
 
+  // ISS — bright moving dot with label
+  if(s_iss_vis) {
+    int ix, iy;
+    if(project(s_iss_alt, s_iss_az, s_heading, cx, cy, radius, &ix, &iy)) {
+      // Pulsing crosshair — stands out from stars
+      #ifdef PBL_COLOR
+      GColor iss_c = s_night_mode ? GColorRed : GColorFromHEX(0xFF8800);
+      #else
+      GColor iss_c = GColorWhite;
+      #endif
+      graphics_context_set_fill_color(ctx, iss_c);
+      graphics_fill_circle(ctx, GPoint(ix, iy), 4);
+      // Cross lines
+      graphics_context_set_stroke_color(ctx, iss_c);
+      graphics_context_set_stroke_width(ctx, 1);
+      graphics_draw_line(ctx, GPoint(ix-8,iy), GPoint(ix-5,iy));
+      graphics_draw_line(ctx, GPoint(ix+5,iy), GPoint(ix+8,iy));
+      graphics_draw_line(ctx, GPoint(ix,iy-8), GPoint(ix,iy-5));
+      graphics_draw_line(ctx, GPoint(ix,iy+5), GPoint(ix,iy+8));
+      // Label
+      graphics_context_set_text_color(ctx, iss_c);
+      graphics_draw_text(ctx, "ISS", f_sm,
+        GRect(ix+6, iy-8, 30, 16), GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    }
+  }
+
   // Cardinal direction markers around the rim
   const char *dirs[] = {"N","E","S","W"};
   float dir_az[] = {0, 90, 180, 270};
@@ -424,6 +453,12 @@ static void inbox_cb(DictionaryIterator *it, void *c) {
   if(t) s_lat = (float)t->value->int32 / 100.0f;
   t = dict_find(it, MESSAGE_KEY_LON);
   if(t) s_lon = (float)t->value->int32 / 100.0f;
+  t = dict_find(it, MESSAGE_KEY_ISS_ALT);
+  if(t) s_iss_alt = (float)t->value->int32 / 10.0f;
+  t = dict_find(it, MESSAGE_KEY_ISS_AZ);
+  if(t) s_iss_az = (float)t->value->int32 / 10.0f;
+  t = dict_find(it, MESSAGE_KEY_ISS_VIS);
+  if(t) s_iss_vis = (bool)t->value->int32;
   if(s_canvas) layer_mark_dirty(s_canvas);
 }
 

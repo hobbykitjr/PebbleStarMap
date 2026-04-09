@@ -13,7 +13,10 @@
         "enableMultiJS": false,
         "messageKeys": {
             "LAT": 0,
-            "LON": 1
+            "LON": 1,
+            "ISS_ALT": 2,
+            "ISS_AZ": 3,
+            "ISS_VIS": 4
         },
         "projectType": "native",
         "resources": {
