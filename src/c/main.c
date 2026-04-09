@@ -136,11 +136,9 @@ static float local_sidereal_time(float lon_deg) {
   struct tm *lt = localtime(&now);
   if(!lt) return 0;
 
-  // Days since J2000.0 (Jan 1.5, 2000) using Unix timestamp
-  // J2000.0 epoch = Unix 946728000 (Jan 1 2000 12:00 UTC)
-  // Estimate UTC offset from longitude
-  int utc_off_sec = (int)(lon_deg / 15.0f) * 3600;
-  double d = ((double)(now - utc_off_sec) - 946728000.0) / 86400.0;
+  // Days since J2000.0 (Jan 1.5, 2000 = Unix 946728000)
+  // time() already returns UTC — no offset needed
+  double d = ((double)now - 946728000.0) / 86400.0;
 
   // Greenwich Mean Sidereal Time in degrees
   double gst = 280.46061837 + 360.98564736629 * d;
