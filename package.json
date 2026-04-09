@@ -1,27 +1,40 @@
 {
-  "name": "pebble-starmap",
-  "author": "Hobbykitjr",
-  "version": "1.0.0",
-  "keywords": ["pebble-app"],
-  "private": true,
-  "dependencies": {},
-  "pebble": {
-    "displayName": "Pixel Stars",
-    "uuid": "e1a2b3c4-d5e6-f7a8-b9c0-d1e2f3a4b5c6",
-    "sdkVersion": "3",
-    "enableMultiJS": false,
-    "targetPlatforms": ["gabbro"],
-    "capabilities": ["compass", "location"],
-    "messageKeys": {
-      "LAT": 0,
-      "LON": 1
+    "author": "Hobbykitjr",
+    "dependencies": {},
+    "keywords": [
+        "pebble-app"
+    ],
+    "name": "star-map",
+    "pebble": {
+        "capabilities": [
+            "location"
+        ],
+        "displayName": "Compass & Star Map",
+        "enableMultiJS": false,
+        "messageKeys": {
+            "LAT": 0,
+            "LON": 1
+        },
+        "projectType": "native",
+        "resources": {
+            "media": [
+                {
+                    "file": "images/menu_icon.png",
+                    "menuIcon": true,
+                    "name": "ICON",
+                    "targetPlatforms": null,
+                    "type": "bitmap"
+                }
+            ]
+        },
+        "sdkVersion": "3",
+        "targetPlatforms": [
+            "gabbro"
+        ],
+        "uuid": "81562077-f841-4260-b3f6-c802c3de765c",
+        "watchapp": {
+            "watchface": false
+        }
     },
-    "enableMultiJS": true,
-    "watchapp": {
-      "watchface": false
-    },
-    "resources": {
-      "media": []
-    }
-  }
+    "version": "1.0.0"
 }
