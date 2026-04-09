@@ -125,9 +125,11 @@ static bool s_show_names = true;   // Show star names
 static int s_zoom = 0;            // 0=full sky, 1=2x, 2=4x
 static const float s_zoom_fov[] = {90.0f, 45.0f, 22.5f};
 static bool s_night_mode = false; // Red-only colors for dark adaptation
-static float s_iss_alt = -90;    // ISS altitude (negative = below horizon)
+static float s_iss_alt = -90;    // ISS altitude
 static float s_iss_az = 0;       // ISS azimuth
 static bool s_iss_vis = false;   // ISS above horizon
+static float s_look_alt = 90;    // Where watch is pointing (90=zenith, 0=horizon)
+static bool s_ar_mode = false;   // Auto-enabled when watch tilted up
 
 // Night mode color helpers
 static GColor nm_star_bright(void) {
@@ -239,18 +241,33 @@ static bool project(float alt, float az, float heading, int cx, int cy, int radi
 
   float fov = s_zoom_fov[s_zoom];  // 90, 45, or 22.5
 
-  // Same projection for all zoom levels — just scale differently
-  // r = angular distance from zenith, mapped to screen
-  float r = (90.0f - alt) / fov * radius;
+  if(s_ar_mode) {
+    // AR mode: center on where watch is pointing (look_alt, heading)
+    // Angular offsets from center of view
+    float dalt = alt - s_look_alt;   // Positive = higher than center
+    float daz = az - heading;
+    while(daz > 180) daz -= 360;
+    while(daz < -180) daz += 360;
 
-  // Rotate so facing direction is at top
-  float theta = az - heading + 180.0f;
+    // Scale: compress by cos(alt) for azimuth near zenith
+    float cos_factor = pcos(s_look_alt);
+    if(cos_factor < 0.2f) cos_factor = 0.2f;
 
-  *sx = cx + (int)(r * psin(theta));
-  *sy = cy - (int)(r * pcos(theta));
+    float px_x = daz * cos_factor / fov * radius;
+    float px_y = -dalt / fov * radius;  // Negative: higher alt = up on screen
+
+    *sx = cx + (int)px_x;
+    *sy = cy + (int)px_y;
+  } else {
+    // Planisphere mode: zenith at center
+    float r = (90.0f - alt) / fov * radius;
+    float theta = az - heading + 180.0f;
+    *sx = cx + (int)(r * psin(theta));
+    *sy = cy - (int)(r * pcos(theta));
+  }
 
   // Clip to screen
-  int margin = 10;
+  int margin = 15;
   if(*sx < -margin || *sx >= cx*2+margin || *sy < -margin || *sy >= cy*2+margin) return false;
   return true;
 }
@@ -384,8 +401,15 @@ static void canvas_proc(Layer *l, GContext *ctx) {
       GRect(0, 4, w, 16), GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
   }
 
-  // Zoom indicator at bottom
-  if(s_zoom > 0) {
+  // Mode indicator at bottom
+  if(s_ar_mode) {
+    graphics_context_set_text_color(ctx, nm_white());
+    GFont f_ar = fonts_get_system_font(FONT_KEY_GOTHIC_14);
+    char abuf[12];
+    snprintf(abuf, sizeof(abuf), "AR %d°", (int)s_look_alt);
+    graphics_draw_text(ctx, abuf, f_ar,
+      GRect(0, h-18, w, 16), GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+  } else if(s_zoom > 0) {
     char zbuf[4];
     snprintf(zbuf, sizeof(zbuf), "%dx", 1 << s_zoom);
     graphics_context_set_text_color(ctx, nm_white());
@@ -393,6 +417,40 @@ static void canvas_proc(Layer *l, GContext *ctx) {
     graphics_draw_text(ctx, zbuf, f_z,
       GRect(0, h-18, w, 16), GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
   }
+}
+
+// ============================================================================
+// ACCELEROMETER (for AR mode)
+// ============================================================================
+static void accel_handler(AccelData *data, uint32_t num_samples) {
+  if(num_samples == 0) return;
+  AccelData a = data[0];
+
+  // Calculate tilt: how far from face-up
+  // Face-up: z ≈ -1000, flat on table
+  // Vertical: z ≈ 0, y ≈ -1000
+  // Overhead: z ≈ +1000
+  int mag = abs(a.x) + abs(a.y) + abs(a.z);
+  if(mag < 100) return;  // No data
+
+  // Pitch: angle from flat (0=flat/zenith, 90=horizon)
+  // Use z component: z=-1000 when flat face-up, z=0 when vertical
+  float z_norm = (float)a.z / -1000.0f;  // 1.0 when flat, 0 when vertical, -1 overhead
+  if(z_norm > 1.0f) z_norm = 1.0f;
+  if(z_norm < -1.0f) z_norm = -1.0f;
+
+  // Convert to look altitude: flat=90° (zenith), vertical=0° (horizon)
+  float new_alt = z_norm * 90.0f;
+  if(new_alt < 0) new_alt = 0;
+  if(new_alt > 90) new_alt = 90;
+
+  // Smooth the value
+  s_look_alt = s_look_alt * 0.7f + new_alt * 0.3f;
+
+  // Auto-enable AR when watch tilted more than 20° from flat
+  s_ar_mode = (s_look_alt < 70);
+
+  if(s_canvas) layer_mark_dirty(s_canvas);
 }
 
 // ============================================================================
@@ -480,9 +538,13 @@ static void win_load(Window *w) {
   layer_add_child(wl, s_canvas);
   window_set_click_config_provider(w, click_config);
 
-  // Start compass (update every degree change)
+  // Compass (update every degree change)
   compass_service_set_heading_filter(TRIG_MAX_ANGLE / 360);
   compass_service_subscribe(compass_handler);
+
+  // Accelerometer for AR mode (10 samples/sec, batched by 1)
+  accel_data_service_subscribe(1, accel_handler);
+  accel_service_set_sampling_rate(ACCEL_SAMPLING_10HZ);
 
   // Also update every minute for star movement
   tick_timer_service_subscribe(MINUTE_UNIT, tick_cb);
@@ -490,6 +552,7 @@ static void win_load(Window *w) {
 
 static void win_unload(Window *w) {
   compass_service_unsubscribe();
+  accel_data_service_unsubscribe();
   tick_timer_service_unsubscribe();
   if(s_canvas) { layer_destroy(s_canvas); s_canvas = NULL; }
 }
