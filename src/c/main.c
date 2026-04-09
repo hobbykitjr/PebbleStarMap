@@ -323,11 +323,12 @@ static void canvas_proc(Layer *l, GContext *ctx) {
 // COMPASS
 // ============================================================================
 static void compass_handler(CompassHeadingData heading_data) {
-  if(heading_data.compass_status >= CompassStatusDataInvalid) {
+  if(heading_data.compass_status == CompassStatusDataInvalid) {
     s_compass_ok = false;
   } else {
+    // CalibrationNeeded or Calibrated — both have usable data
     s_compass_ok = true;
-    s_heading = TRIGANGLE_TO_DEG(heading_data.magnetic_heading);
+    s_heading = (float)TRIGANGLE_TO_DEG((int)heading_data.magnetic_heading);
   }
   if(s_canvas) layer_mark_dirty(s_canvas);
 }
