@@ -123,7 +123,59 @@ static float s_lat = 40.5;         // Observer latitude (PA area default)
 static float s_lon = -76.0;       // Observer longitude
 static bool s_show_names = true;   // Show star names
 static int s_zoom = 0;            // 0=full sky, 1=2x, 2=4x
-static const float s_zoom_fov[] = {90.0f, 45.0f, 22.5f};  // Degrees from center to edge
+static const float s_zoom_fov[] = {90.0f, 45.0f, 22.5f};
+static bool s_night_mode = false; // Red-only colors for dark adaptation
+
+// Night mode color helpers
+static GColor nm_star_bright(void) {
+  #ifdef PBL_COLOR
+  return s_night_mode ? GColorRed : GColorYellow;
+  #else
+  return GColorWhite;
+  #endif
+}
+static GColor nm_star(void) {
+  #ifdef PBL_COLOR
+  return s_night_mode ? GColorDarkCandyAppleRed : GColorWhite;
+  #else
+  return GColorWhite;
+  #endif
+}
+static GColor nm_line(void) {
+  #ifdef PBL_COLOR
+  return s_night_mode ? GColorFromHEX(0x330000) : GColorFromHEX(0x4488AA);
+  #else
+  return GColorLightGray;
+  #endif
+}
+static GColor nm_text(void) {
+  #ifdef PBL_COLOR
+  return s_night_mode ? GColorFromHEX(0x881111) : GColorFromHEX(0x88AACC);
+  #else
+  return GColorLightGray;
+  #endif
+}
+static GColor nm_horizon(void) {
+  #ifdef PBL_COLOR
+  return s_night_mode ? GColorFromHEX(0x220000) : GColorFromHEX(0x003366);
+  #else
+  return GColorDarkGray;
+  #endif
+}
+static GColor nm_white(void) {
+  #ifdef PBL_COLOR
+  return s_night_mode ? GColorDarkCandyAppleRed : GColorWhite;
+  #else
+  return GColorWhite;
+  #endif
+}
+static GColor nm_north(void) {
+  #ifdef PBL_COLOR
+  return s_night_mode ? GColorRed : GColorRed;  // Red either way
+  #else
+  return GColorWhite;
+  #endif
+}
 
 // ============================================================================
 // ASTRONOMY
@@ -214,11 +266,7 @@ static void canvas_proc(Layer *l, GContext *ctx) {
   graphics_fill_rect(ctx, b, 0, GCornerNone);
 
   // Horizon circle
-  #ifdef PBL_COLOR
-  graphics_context_set_stroke_color(ctx, GColorFromHEX(0x003366));
-  #else
-  graphics_context_set_stroke_color(ctx, GColorDarkGray);
-  #endif
+  graphics_context_set_stroke_color(ctx, nm_horizon());
   graphics_draw_circle(ctx, GPoint(cx, cy), radius);
 
   // Compute sidereal time using observer longitude
@@ -234,11 +282,7 @@ static void canvas_proc(Layer *l, GContext *ctx) {
   }
 
   // Draw constellation lines
-  #ifdef PBL_COLOR
-  graphics_context_set_stroke_color(ctx, GColorFromHEX(0x4488AA));
-  #else
-  graphics_context_set_stroke_color(ctx, GColorLightGray);
-  #endif
+  graphics_context_set_stroke_color(ctx, nm_line());
   graphics_context_set_stroke_width(ctx, s_zoom > 0 ? 2 : 1);
   for(int i=0; i<NUM_LINES; i++) {
     int a=s_lines[i].a, b2=s_lines[i].b;
@@ -263,21 +307,12 @@ static void canvas_proc(Layer *l, GContext *ctx) {
       default: r=1+boost; break;
     }
 
-    #ifdef PBL_COLOR
-    if(s_stars[i].mag==0) graphics_context_set_fill_color(ctx, GColorYellow);
-    else graphics_context_set_fill_color(ctx, GColorWhite);
-    #else
-    graphics_context_set_fill_color(ctx, GColorWhite);
-    #endif
+    graphics_context_set_fill_color(ctx, s_stars[i].mag==0 ? nm_star_bright() : nm_star());
     graphics_fill_circle(ctx, GPoint(x, y), r);
 
     // Star name
     if(s_show_names && s_stars[i].name && s_stars[i].mag <= 1) {
-      #ifdef PBL_COLOR
-      graphics_context_set_text_color(ctx, GColorFromHEX(0x88AACC));
-      #else
-      graphics_context_set_text_color(ctx, GColorLightGray);
-      #endif
+      graphics_context_set_text_color(ctx, nm_text());
       graphics_draw_text(ctx, s_stars[i].name, f_sm,
         GRect(x+4, y-8, 70, 16), GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
     }
@@ -291,22 +326,13 @@ static void canvas_proc(Layer *l, GContext *ctx) {
     float theta = dir_az[i] - s_heading + 180.0f;
     int dx = cx + (int)((radius+8) * psin(theta));
     int dy = cy - (int)((radius+8) * pcos(theta));
-    #ifdef PBL_COLOR
-    GColor dc = (i==0) ? GColorRed : GColorWhite;
-    graphics_context_set_text_color(ctx, dc);
-    #else
-    graphics_context_set_text_color(ctx, GColorWhite);
-    #endif
+    graphics_context_set_text_color(ctx, (i==0) ? nm_north() : nm_white());
     graphics_draw_text(ctx, dirs[i], f_dir,
       GRect(dx-8, dy-10, 16, 20), GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
   }
 
   // Center crosshair (zenith marker)
-  #ifdef PBL_COLOR
-  graphics_context_set_stroke_color(ctx, GColorFromHEX(0x333355));
-  #else
-  graphics_context_set_stroke_color(ctx, GColorDarkGray);
-  #endif
+  graphics_context_set_stroke_color(ctx, nm_horizon());
   graphics_draw_line(ctx, GPoint(cx-5,cy), GPoint(cx+5,cy));
   graphics_draw_line(ctx, GPoint(cx,cy-5), GPoint(cx,cy+5));
 
@@ -318,12 +344,12 @@ static void canvas_proc(Layer *l, GContext *ctx) {
                       (hdg<158)?"SE":(hdg<203)?"S":(hdg<248)?"SW":
                       (hdg<293)?"W":"NW";
     snprintf(hbuf, sizeof(hbuf), "%s %d°", dir, hdg);
-    graphics_context_set_text_color(ctx, GColorWhite);
+    graphics_context_set_text_color(ctx, nm_white());
     GFont f_hd = fonts_get_system_font(FONT_KEY_GOTHIC_14);
     graphics_draw_text(ctx, hbuf, f_hd,
       GRect(0, 4, w, 16), GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
   } else {
-    graphics_context_set_text_color(ctx, GColorWhite);
+    graphics_context_set_text_color(ctx, nm_white());
     GFont f_hd = fonts_get_system_font(FONT_KEY_GOTHIC_14);
     graphics_draw_text(ctx, "Calibrating...", f_hd,
       GRect(0, 4, w, 16), GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
@@ -333,7 +359,7 @@ static void canvas_proc(Layer *l, GContext *ctx) {
   if(s_zoom > 0) {
     char zbuf[4];
     snprintf(zbuf, sizeof(zbuf), "%dx", 1 << s_zoom);
-    graphics_context_set_text_color(ctx, GColorWhite);
+    graphics_context_set_text_color(ctx, nm_white());
     GFont f_z = fonts_get_system_font(FONT_KEY_GOTHIC_14);
     graphics_draw_text(ctx, zbuf, f_z,
       GRect(0, h-18, w, 16), GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
@@ -362,6 +388,11 @@ static void select_click(ClickRecognizerRef ref, void *ctx) {
   if(s_canvas) layer_mark_dirty(s_canvas);
 }
 
+static void select_long(ClickRecognizerRef ref, void *ctx) {
+  s_night_mode = !s_night_mode;
+  if(s_canvas) layer_mark_dirty(s_canvas);
+}
+
 static void up_click(ClickRecognizerRef ref, void *ctx) {
   if(s_zoom < 2) s_zoom++;
   if(s_canvas) layer_mark_dirty(s_canvas);
@@ -378,6 +409,7 @@ static void back_click(ClickRecognizerRef ref, void *ctx) {
 
 static void click_config(void *ctx) {
   window_single_click_subscribe(BUTTON_ID_SELECT, select_click);
+  window_long_click_subscribe(BUTTON_ID_SELECT, 700, select_long, NULL);
   window_single_click_subscribe(BUTTON_ID_UP, up_click);
   window_single_click_subscribe(BUTTON_ID_DOWN, down_click);
   window_single_click_subscribe(BUTTON_ID_BACK, back_click);
