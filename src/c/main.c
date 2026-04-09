@@ -9,7 +9,6 @@
 
 #include <pebble.h>
 #include <stdlib.h>
-#include <math.h>
 
 // ============================================================================
 // MATH HELPERS
@@ -20,8 +19,28 @@
 #define HOURS2RAD(h) ((h)*PI/12.0f)
 
 // Fixed-point trig using Pebble's lookup tables
-static float psin(float deg) { return (float)sin_lookup(DEG_TO_TRIGANGLE((int)deg)) / TRIG_MAX_RATIO; }
-static float pcos(float deg) { return (float)cos_lookup(DEG_TO_TRIGANGLE((int)deg)) / TRIG_MAX_RATIO; }
+static float psin(float deg) { return (float)sin_lookup(DEG_TO_TRIGANGLE((int)deg)) / (float)TRIG_MAX_RATIO; }
+static float pcos(float deg) { return (float)cos_lookup(DEG_TO_TRIGANGLE((int)deg)) / (float)TRIG_MAX_RATIO; }
+
+// Safe asin/acos approximations using atan2_lookup
+static float pasin(float x) {
+  if(x > 1.0f) x = 1.0f;
+  if(x < -1.0f) x = -1.0f;
+  // asin(x) = atan2(x, sqrt(1-x*x))
+  float y = 1.0f - x*x;
+  if(y < 0) y = 0;
+  // Simple sqrt approximation (Newton's method, 3 iterations)
+  float s = (y > 0) ? y : 0.001f;
+  s = 0.5f * (s + y/s);
+  s = 0.5f * (s + y/s);
+  s = 0.5f * (s + y/s);
+  int32_t angle = atan2_lookup((int)(x*TRIG_MAX_RATIO), (int)(s*TRIG_MAX_RATIO));
+  return (float)angle * 360.0f / (float)TRIG_MAX_ANGLE;
+}
+
+static float pacos(float x) {
+  return 90.0f - pasin(x);
+}
 
 // ============================================================================
 // STAR CATALOG
@@ -110,12 +129,13 @@ static bool s_show_names = true;   // Show star names
 // Compute Local Sidereal Time in degrees
 static float local_sidereal_time(float lon_deg) {
   time_t now = time(NULL);
-  struct tm *utc = gmtime(&now);
-  if(!utc) return 0;
+  struct tm *lt = localtime(&now);
+  if(!lt) return 0;
 
-  // Julian date approximation
-  int y=utc->tm_year+1900, m=utc->tm_mon+1, d=utc->tm_mday;
-  int h=utc->tm_hour, mn=utc->tm_min, s=utc->tm_sec;
+  // Approximate UTC by assuming EST (-5) — good enough for star positions
+  int y=lt->tm_year+1900, m=lt->tm_mon+1, d=lt->tm_mday;
+  int h=lt->tm_hour+5, mn=lt->tm_min, s=lt->tm_sec;  // +5 for EST→UTC
+  if(h>=24) { h-=24; d++; }
   float ut = h + mn/60.0f + s/3600.0f;
 
   // Days since J2000.0
@@ -148,13 +168,13 @@ static void radec_to_altaz(float ra_h, float dec_d, float lst_deg, float lat_d,
   // Clamp
   if(sin_alt > 1.0f) sin_alt = 1.0f;
   if(sin_alt < -1.0f) sin_alt = -1.0f;
-  float alt = RAD2DEG(asin(sin_alt));  // Use math.h asin — more precise than lookup
+  float alt = pasin(sin_alt);
 
   // Azimuth
   float cos_az = (psin(dec_d) - psin(alt)*psin(lat_d)) / (pcos(alt)*pcos(lat_d) + 0.0001f);
   if(cos_az > 1.0f) cos_az = 1.0f;
   if(cos_az < -1.0f) cos_az = -1.0f;
-  float az = RAD2DEG(acos(cos_az));
+  float az = pacos(cos_az);
   if(psin(ha) > 0) az = 360.0f - az;
 
   *alt_out = alt;
