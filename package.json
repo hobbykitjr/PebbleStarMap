@@ -1,0 +1,23 @@
+{
+  "name": "pebble-starmap",
+  "author": "Hobbykitjr",
+  "version": "1.0.0",
+  "keywords": ["pebble-app"],
+  "private": true,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "Pixel Stars",
+    "uuid": "e1a2b3c4-d5e6-f7a8-b9c0-d1e2f3a4b5c6",
+    "sdkVersion": "3",
+    "enableMultiJS": false,
+    "targetPlatforms": ["gabbro"],
+    "capabilities": ["compass"],
+    "messageKeys": {},
+    "watchapp": {
+      "watchface": false
+    },
+    "resources": {
+      "media": []
+    }
+  }
+}
