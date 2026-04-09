@@ -187,8 +187,8 @@ static bool project(float alt, float az, float heading, int cx, int cy, int radi
   if(alt < -5) return false;  // Below horizon (allow slight dip)
 
   float r = (90.0f - alt) / 90.0f * radius;  // 0 at zenith, radius at horizon
-  float theta = az - heading;  // Rotate by compass heading
-  // North at top
+  // Facing direction at top: subtract heading so your heading goes to top
+  float theta = az - heading + 180.0f;  // +180 flips so facing dir is at top
   *sx = cx + (int)(r * psin(theta));
   *sy = cy - (int)(r * pcos(theta));
   return true;
@@ -281,7 +281,7 @@ static void canvas_proc(Layer *l, GContext *ctx) {
   float dir_az[] = {0, 90, 180, 270};
   GFont f_dir = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
   for(int i=0; i<4; i++) {
-    float theta = dir_az[i] - s_heading;
+    float theta = dir_az[i] - s_heading + 180.0f;
     int dx = cx + (int)((radius+8) * psin(theta));
     int dy = cy - (int)((radius+8) * pcos(theta));
     #ifdef PBL_COLOR
@@ -305,8 +305,12 @@ static void canvas_proc(Layer *l, GContext *ctx) {
 
   // Compass heading text at top
   if(s_compass_ok) {
-    char hbuf[8];
-    snprintf(hbuf, sizeof(hbuf), "%d", (int)s_heading);
+    char hbuf[16];
+    int hdg = (int)s_heading;
+    const char *dir = (hdg>=338||hdg<23)?"N":(hdg<68)?"NE":(hdg<113)?"E":
+                      (hdg<158)?"SE":(hdg<203)?"S":(hdg<248)?"SW":
+                      (hdg<293)?"W":"NW";
+    snprintf(hbuf, sizeof(hbuf), "%s %d°", dir, hdg);
     graphics_context_set_text_color(ctx, GColorWhite);
     GFont f_hd = fonts_get_system_font(FONT_KEY_GOTHIC_14);
     graphics_draw_text(ctx, hbuf, f_hd,
