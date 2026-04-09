@@ -121,6 +121,8 @@ static float s_heading = 0;        // Compass heading in degrees
 static bool s_compass_ok = false;
 static float s_lat = 40.5;         // Observer latitude (PA area default)
 static bool s_show_names = true;   // Show star names
+static int s_zoom = 0;            // 0=full sky, 1=2x, 2=4x
+static const float s_zoom_fov[] = {90.0f, 45.0f, 22.5f};  // Degrees from center to edge
 
 // ============================================================================
 // ASTRONOMY
@@ -184,13 +186,54 @@ static void radec_to_altaz(float ra_h, float dec_d, float lst_deg, float lat_d,
 // Project alt/az to screen coordinates (stereographic from zenith)
 static bool project(float alt, float az, float heading, int cx, int cy, int radius,
                     int *sx, int *sy) {
-  if(alt < -5) return false;  // Below horizon (allow slight dip)
+  if(alt < -5) return false;  // Below horizon
 
-  float r = (90.0f - alt) / 90.0f * radius;  // 0 at zenith, radius at horizon
-  // Facing direction at top: subtract heading so your heading goes to top
-  float theta = az - heading + 180.0f;  // +180 flips so facing dir is at top
-  *sx = cx + (int)(r * psin(theta));
-  *sy = cy - (int)(r * pcos(theta));
+  float fov = s_zoom_fov[s_zoom];
+
+  // Angular distance from the center of view (heading direction at altitude ~45°)
+  // For zoomed view: center on the direction we're facing at ~45° altitude
+  float center_alt = (s_zoom == 0) ? 90.0f : 45.0f;  // Full sky: zenith center, zoom: mid-sky
+
+  // Distance from center of projection
+  float dalt = center_alt - alt;
+  float daz = az - heading;
+  // Normalize daz to -180..180
+  while(daz > 180) daz -= 360;
+  while(daz < -180) daz += 360;
+
+  // Simple angular distance for zoom clipping
+  if(s_zoom > 0) {
+    float ang_dist = dalt*dalt + daz*daz*pcos(alt)*pcos(alt);
+    if(ang_dist > fov*fov*1.5f) return false;  // Outside FOV
+  }
+
+  float r;
+  if(s_zoom == 0) {
+    // Full sky: zenith at center, horizon at edge
+    r = (90.0f - alt) / 90.0f * radius;
+  } else {
+    // Zoomed: map FOV to full radius
+    r = dalt / fov * radius;
+  }
+
+  float theta = daz + 180.0f;
+  if(s_zoom == 0) theta = az - heading + 180.0f;
+
+  float px_x, px_y;
+  if(s_zoom == 0) {
+    px_x = r * psin(theta);
+    px_y = -r * pcos(theta);
+  } else {
+    // Zoomed: daz maps to horizontal, dalt maps to vertical
+    px_x = daz / fov * radius;
+    px_y = dalt / fov * radius;
+  }
+
+  *sx = cx + (int)px_x;
+  *sy = cy + (int)px_y;
+
+  // Clip to screen bounds
+  if(*sx < 0 || *sx >= cx*2 || *sy < 0 || *sy >= cy*2) return false;
   return true;
 }
 
@@ -229,11 +272,11 @@ static void canvas_proc(Layer *l, GContext *ctx) {
 
   // Draw constellation lines
   #ifdef PBL_COLOR
-  graphics_context_set_stroke_color(ctx, GColorFromHEX(0x224466));
+  graphics_context_set_stroke_color(ctx, GColorFromHEX(0x4488AA));
   #else
-  graphics_context_set_stroke_color(ctx, GColorDarkGray);
+  graphics_context_set_stroke_color(ctx, GColorLightGray);
   #endif
-  graphics_context_set_stroke_width(ctx, 1);
+  graphics_context_set_stroke_width(ctx, s_zoom > 0 ? 2 : 1);
   for(int i=0; i<NUM_LINES; i++) {
     int a=s_lines[i].a, b2=s_lines[i].b;
     if(star_vis[a] && star_vis[b2]) {
@@ -248,12 +291,13 @@ static void canvas_proc(Layer *l, GContext *ctx) {
     if(!star_vis[i]) continue;
     int x=star_x[i], y=star_y[i];
 
-    // Star dot — size by magnitude
+    // Star dot — size by magnitude, bigger when zoomed
     int r;
+    int boost = s_zoom;  // 0, 1, or 2 extra pixels
     switch(s_stars[i].mag) {
-      case 0: r=3; break;
-      case 1: r=2; break;
-      default: r=1; break;
+      case 0: r=3+boost; break;
+      case 1: r=2+boost; break;
+      default: r=1+boost; break;
     }
 
     #ifdef PBL_COLOR
@@ -321,6 +365,16 @@ static void canvas_proc(Layer *l, GContext *ctx) {
     graphics_draw_text(ctx, "Calibrating...", f_hd,
       GRect(0, 4, w, 16), GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
   }
+
+  // Zoom indicator at bottom
+  if(s_zoom > 0) {
+    char zbuf[4];
+    snprintf(zbuf, sizeof(zbuf), "%dx", 1 << s_zoom);
+    graphics_context_set_text_color(ctx, GColorWhite);
+    GFont f_z = fonts_get_system_font(FONT_KEY_GOTHIC_14);
+    graphics_draw_text(ctx, zbuf, f_z,
+      GRect(0, h-18, w, 16), GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+  }
 }
 
 // ============================================================================
@@ -345,12 +399,24 @@ static void select_click(ClickRecognizerRef ref, void *ctx) {
   if(s_canvas) layer_mark_dirty(s_canvas);
 }
 
+static void up_click(ClickRecognizerRef ref, void *ctx) {
+  if(s_zoom < 2) s_zoom++;
+  if(s_canvas) layer_mark_dirty(s_canvas);
+}
+
+static void down_click(ClickRecognizerRef ref, void *ctx) {
+  if(s_zoom > 0) s_zoom--;
+  if(s_canvas) layer_mark_dirty(s_canvas);
+}
+
 static void back_click(ClickRecognizerRef ref, void *ctx) {
   window_stack_pop(true);
 }
 
 static void click_config(void *ctx) {
   window_single_click_subscribe(BUTTON_ID_SELECT, select_click);
+  window_single_click_subscribe(BUTTON_ID_UP, up_click);
+  window_single_click_subscribe(BUTTON_ID_DOWN, down_click);
   window_single_click_subscribe(BUTTON_ID_BACK, back_click);
 }
 
