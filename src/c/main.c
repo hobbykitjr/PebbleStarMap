@@ -130,53 +130,46 @@ static const float s_zoom_fov[] = {90.0f, 45.0f, 22.5f};  // Degrees from center
 // ============================================================================
 
 // Compute Local Sidereal Time in degrees
+// Uses a simpler formula that avoids Julian Date float precision issues
 static float local_sidereal_time(float lon_deg) {
   time_t now = time(NULL);
   struct tm *lt = localtime(&now);
   if(!lt) return 0;
 
-  // Estimate UTC offset from longitude (rough: 1 hour per 15°)
-  int utc_off = -(int)(lon_deg / 15.0f);
-  int y=lt->tm_year+1900, m=lt->tm_mon+1, d=lt->tm_mday;
-  int h=lt->tm_hour+utc_off, mn=lt->tm_min, s=lt->tm_sec;
-  while(h>=24) { h-=24; d++; }
-  while(h<0) { h+=24; d--; }
-  float ut = h + mn/60.0f + s/3600.0f;
+  // Days since J2000.0 (Jan 1.5, 2000) using Unix timestamp
+  // J2000.0 epoch = Unix 946728000 (Jan 1 2000 12:00 UTC)
+  // Estimate UTC offset from longitude
+  int utc_off_sec = (int)(lon_deg / 15.0f) * 3600;
+  double d = ((double)(now - utc_off_sec) - 946728000.0) / 86400.0;
 
-  // Days since J2000.0
-  float jd = 367*y - (int)(7*(y+(int)((m+9)/12))/4) + (int)(275*m/9) + d + 1721013.5f + ut/24.0f;
-  float d0 = jd - 2451545.0f;
-
-  // Greenwich Sidereal Time in degrees
-  float gst = 280.46061837f + 360.98564736629f * d0;
-  // Normalize
-  gst = gst - (int)(gst/360.0f)*360.0f;
-  if(gst < 0) gst += 360.0f;
+  // Greenwich Mean Sidereal Time in degrees
+  double gst = 280.46061837 + 360.98564736629 * d;
 
   // Local Sidereal Time
-  float lst = gst + lon_deg;
-  lst = lst - (int)(lst/360.0f)*360.0f;
-  if(lst < 0) lst += 360.0f;
-  return lst;
+  double lst = gst + (double)lon_deg;
+
+  // Normalize to 0-360
+  float result = (float)(lst - (int)(lst/360.0)*360.0);
+  while(result < 0) result += 360.0f;
+  while(result >= 360) result -= 360.0f;
+  return result;
 }
 
 // Convert RA/Dec to Altitude/Azimuth
 static void radec_to_altaz(float ra_h, float dec_d, float lst_deg, float lat_d,
                            float *alt_out, float *az_out) {
   float ha = lst_deg - ra_h * 15.0f;  // Hour angle in degrees
-  float ha_r = DEG2RAD(ha);
-  float dec_r = DEG2RAD(dec_d);
-  float lat_r = DEG2RAD(lat_d);
 
-  // Altitude
+  // Altitude: sin(alt) = sin(dec)*sin(lat) + cos(dec)*cos(lat)*cos(ha)
   float sin_alt = psin(dec_d)*psin(lat_d) + pcos(dec_d)*pcos(lat_d)*pcos(ha);
-  // Clamp
   if(sin_alt > 1.0f) sin_alt = 1.0f;
   if(sin_alt < -1.0f) sin_alt = -1.0f;
   float alt = pasin(sin_alt);
 
-  // Azimuth
-  float cos_az = (psin(dec_d) - psin(alt)*psin(lat_d)) / (pcos(alt)*pcos(lat_d) + 0.0001f);
+  // Azimuth: cos(az) = (sin(dec) - sin(alt)*sin(lat)) / (cos(alt)*cos(lat))
+  float denom = pcos(alt)*pcos(lat_d);
+  if(denom < 0.001f && denom > -0.001f) denom = 0.001f;
+  float cos_az = (psin(dec_d) - psin(alt)*psin(lat_d)) / denom;
   if(cos_az > 1.0f) cos_az = 1.0f;
   if(cos_az < -1.0f) cos_az = -1.0f;
   float az = pacos(cos_az);
@@ -265,7 +258,7 @@ static void canvas_proc(Layer *l, GContext *ctx) {
 
     // Star dot — size by magnitude, bigger when zoomed
     int r;
-    int boost = s_zoom;  // 0, 1, or 2 extra pixels
+    int boost = (s_zoom > 0) ? 1 : 0;  // +1px when zoomed
     switch(s_stars[i].mag) {
       case 0: r=3+boost; break;
       case 1: r=2+boost; break;
